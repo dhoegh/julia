@@ -178,6 +178,16 @@ function showerror(io::IO, ex::MethodError)
         end
     elseif isempty(methods(f)) && !isa(f, Function)
         print(io, "objects of type $ft are not callable")
+    elseif startswith(string(ft), "#kw#")
+        #kw_arg_in = ex.args[1]
+        org_name = name[2:search(name,"#",2) - 1]
+        print(io, "no method matching ", org_name)
+        for (i, typ) in enumerate(ex.args[3:end])
+            print(io, "::$typ")
+            i == length(arg_types_param) || print(io, ", ")
+        end
+        Base.kwarg_decl(first(), ft)
+        print(io, "The method $org_name do not accept the keywords given", name)
     else
         if ft <: Function && isempty(ft.parameters) &&
                 isdefined(ft.name.module, name) &&

@@ -801,6 +801,8 @@ macro MIME(s)
 end
 end)
 
+@deprecate write(x) write(STDOUT::IO, x)
+
 # During the 0.5 development cycle, do not add any deprecations below this line
 # To be deprecated in 0.6
 

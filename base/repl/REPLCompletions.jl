@@ -239,6 +239,45 @@ function find_start_brace(s::AbstractString; c_start='(', c_end=')')
     return (startind:endof(s), method_name_end)
 end
 
+"""
+Returns a whether a string has matching single and double quotes.
+It assumes the string contians a backtick, this is garanteed by
+calling context.
+The functions returns:
+    - 0 if it contains matching quotes
+    - 1 if it has non matching single quotes
+    - 2 if it has non matching double quotes
+The function could be called with a string like: "cmd = `rm 'test_file"
+"""
+function in_quotes(s::AbstractString)
+    r = RevString(s)
+    i = start(r)
+    in_single_quotes = false
+    in_double_quotes = false
+    while !done(r, i)
+        c, i = next(r, i)
+        if !in_single_quotes && !in_double_quotes
+            if c == '\'' && !done(r, i) && next(r, i)[1]!='\\'
+                in_single_quotes = true
+            elseif c == '"' && !done(r, i) && next(r, i)[1]!='\\'
+                in_double_quotes = true
+            elseif c == '`'
+                break
+            end
+        else
+            if !in_double_quotes && c == '\'' && !done(r, i) && next(r, i)[1]!='\\'
+                in_single_quotes = !in_single_quotes
+            elseif !in_single_quotes && c == '"' && !done(r, i) && next(r, i)[1]!='\\'
+                in_double_quotes = !in_double_quotes
+            end
+        end
+    end
+    q = 0
+    in_single_quotes && (q = 1)
+    in_double_quotes && (q = 2)
+    return q
+end
+
 # Returns the value in a expression if sym is defined in current namespace fn.
 # This method is used to iterate to the value of a expression like:
 # :(Base.REPLCompletions.whitespace_chars) a `dump` of this expression
@@ -456,15 +495,32 @@ function completions(string, pos)
 
     # otherwise...
     if inc_tag in [:cmd, :string]
-        m = match((inc_tag == :cmd) ? r"[\"`]| (?!\\)" : r"\"(?!\\)", reverse(partial))
+        if inc_tag == :cmd
+            # Returns 1 for or 2 for unfineshed single or double quote, else 0
+            quotes = in_quotes(partial)
+            if quotes == 1 # Look for the unfinished quote
+                pat = r"'(?!\\)"
+            elseif quotes == 2
+                pat = r"\"(?!\\)"
+            else # If it's not in quotes look for either unescaped space or backtick
+                pat = r"[` ](?!\\)"
+            end
+        else
+            pat = r"\"(?!\\)"
+        end
+        m = match(pat, reverse(partial))
         startpos = nextind(partial, reverseind(partial, m.offset))
         r = startpos:pos
         paths, r, success = complete_path(replace(string[r], r"\\ ", " "), pos)
-        if inc_tag == :string &&
-           length(paths) == 1 &&                              # Only close if there's a single choice,
-           !isdir(expanduser(replace(string[startpos:start(r)-1] * paths[1], r"\\ ", " "))) &&  # except if it's a directory
-           (length(string) <= pos || string[pos+1] != '"')    # or there's already a " at the cursor.
-            paths[1] *= "\""
+        if length(paths) == 1 &&                              # Only close if there's a single choice,
+           !isdir(expanduser(replace(string[startpos:start(r)-1] * paths[1], r"\\ ", " ")))  # except if it's a directory
+            if inc_tag == :string || (inc_tag == :cmd && quotes == 2) &&
+               (length(string) <= pos || string[pos+1] != '"')    # or there's already a " at the cursor.
+                paths[1] *= "\""
+            elseif inc_tag == :cmd && quotes == 1 &&
+               (length(string) <= pos || string[pos+1] != '\'')    # or there's already a " at the cursor.
+                paths[1] *= "'"
+            end
         end
         #Latex symbols can be completed for strings
         (success || inc_tag==:cmd) && return sort!(paths), r, success

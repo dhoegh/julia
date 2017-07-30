@@ -627,12 +627,7 @@ let #test that it can auto complete with spaces in file/path
             @test r == endof(s)-4:endof(s)
             @test "space\\ .file" in c
 
-            s = is_windows() ? "cd(\"$dir_space\\\\space" : "cd(\"β $dir_space/space"
-            c,r = test_complete(s)
-            @test r == endof(s)-4:endof(s)
-            @test "space\\ .file\"" in c
-
-            s = is_windows() ? "run(`rm $dir_space\\\\space" : "run(`rm $dir_space/space"
+            s = is_windows() ? "cd(\"$dir_space\\\\space" : "cd(\"$dir_space/space"
             c,r = test_complete(s)
             @test r == endof(s)-4:endof(s)
             @test "space\\ .file" in c
@@ -640,7 +635,25 @@ let #test that it can auto complete with spaces in file/path
             s = is_windows() ? "run(`rm \"$dir_space\\\\space" : "run(`rm \"$dir_space/space"
             c,r = test_complete(s)
             @test r == endof(s)-4:endof(s)
-            @test "space\\ .file" in c
+            @test "space\\ .file\"" in c
+
+            s = is_windows() ? "run(`rm \"test\" \"$dir_space\\\\space" : "run(`rm \"test\" \"$dir_space/space"
+            c,r = test_complete(s)
+            @test r == endof(s)-4:endof(s)
+            @test "space\\ .file\"" in c
+
+            s = is_windows() ? "run(`rm \"test\" '$dir_space\\\\space" : "run(`rm \"test\" '$dir_space/space"
+            c,r = test_complete(s)
+            @test r == endof(s)-4:endof(s)
+            @test "space\\ .file'" in c
+
+            s = is_windows() ? "run(`rm \"test $dir_space\\\\space" : "run(`rm  \"test $dir_space/space"
+            c,r = test_complete(s)
+            @test length(c) == 0
+
+            s = is_windows() ? "run(`rm 'test $dir_space\\\\space" : "run(`rm  'test $dir_space/space"
+            c,r = test_complete(s)
+            @test length(c) == 0
         end
         # Test for issue #10324
         s = "cd(\"$dir_space"

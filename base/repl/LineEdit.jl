@@ -125,7 +125,7 @@ function show_completions(s::PromptState, completions)
             idx = row + col*entries_per_col
             if idx <= length(completions)
                 cmove_col(terminal(s), (colmax+2)*col)
-                print(terminal(s), completions[idx])
+                print(terminal(s), (completions[idx].exp ? "" : "•") * completions[idx].name)
             end
         end
         println(terminal(s))
@@ -150,9 +150,9 @@ function complete_line(s::PromptState, repeats)
         # Replace word by completion
         prev_pos = position(s.input_buffer)
         seek(s.input_buffer, prev_pos-sizeof(partial))
-        edit_replace(s, position(s.input_buffer), prev_pos, completions[1])
+        edit_replace(s, position(s.input_buffer), prev_pos, completions[1].name)
     else
-        p = common_prefix(completions)
+        p = common_prefix(getfield.(completions, :name))
         if !isempty(p) && p != partial
             # All possible completions share the same prefix, so we might as
             # well complete that

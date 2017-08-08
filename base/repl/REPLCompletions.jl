@@ -11,17 +11,25 @@ function completes_global(x, name)
 end
 
 function appendmacro!(syms, macros, needle, endchar)
-    append!(syms, s[2:end-sizeof(needle)]*endchar for s in filter(x -> endswith(x, needle), macros))
+    filtered = filter(x -> endswith(x.name, needle), macros)
+    append!(syms, Suggestion(s.name[2:end-4]*endchar, s.exp) for s in filtered)
 end
+
+struct Suggestion
+    name::String
+    exp::Bool
+end
+Base.length(s::Suggestion) = length(s.name) + s.exp
+Base.isless(s::Suggestion, s1::Suggestion) = isless(s.name, s1.name)
 
 function filtered_mod_names(ffunc::Function, mod::Module, name::AbstractString, all::Bool=false, imported::Bool=false)
     ssyms = names(mod, all, imported)
     filter!(ffunc, ssyms)
-    syms = String[string(s) for s in ssyms]
-    macros =  filter(x -> startswith(x, "@" * name), syms)
+    syms = [Suggestion(s, Base.isexported(mod, s)) for s in ssyms]
+    macros =  filter(x -> startswith(x.name, "@" * name), syms)
     appendmacro!(syms, macros, "_str", "\"")
     appendmacro!(syms, macros, "_cmd", "`")
-    filter!(x->completes_global(x, name), syms)
+    filter!(x->completes_global(x.name, name), syms)
     return syms
 end
 
@@ -55,12 +63,12 @@ function complete_symbol(sym, ffunc)
             lookup_module = false
             t, found = get_type(ex, context_module)
         end
-        found || return String[]
+        found || return Suggestion[]
         # Ensure REPLCompletion do not crash when asked to complete a tuple, #15329
-        !lookup_module && t <: Tuple && return String[]
+        !lookup_module && t <: Tuple && return Suggestion[]
     end
 
-    suggestions = String[]
+    suggestions = Suggestion[]
     if lookup_module
         # We will exclude the results that the user does not want, as well
         # as excluding Main.Main.Main, etc., because that's most likely not what
@@ -83,7 +91,7 @@ function complete_symbol(sym, ffunc)
         for field in fields
             s = string(field)
             if startswith(s, name)
-                push!(suggestions, s)
+                push!(suggestions, Suggestion(s, false))
             end
         end
     end
@@ -456,9 +464,9 @@ function completions(string, pos)
         if partial_key !== nothing
             matches = find_dict_matches(identifier, partial_key)
             length(matches)==1 && (length(string) <= pos || string[pos+1] != ']') && (matches[1]*="]")
-            length(matches)>0 && return sort!(matches), loc:pos, true
+            length(matches)>0 && return Suggestion.(sort!(matches), false), loc:pos, true
         else
-            return String[], 0:-1, false
+            return Suggestion[], 0:-1, false
         end
     end
 
@@ -475,32 +483,32 @@ function completions(string, pos)
             paths[1] *= "\""
         end
         #Latex symbols can be completed for strings
-        (success || inc_tag==:cmd) && return sort!(paths), r, success
+        (success || inc_tag==:cmd) && return Suggestion.(sort!(paths),false), r, success
     end
 
     ok, ret = bslash_completions(string, pos)
-    ok && return ret
+    ok && return Suggestion.(ret[1], false), ret[2:end]...
 
     # Make sure that only bslash_completions is working on strings
-    inc_tag==:string && return String[], 0:-1, false
+    inc_tag==:string && return Suggestion[], 0:-1, false, not_exported([])
 
     if inc_tag == :other && should_method_complete(partial)
         frange, method_name_end = find_start_brace(partial)
         ex = Base.syntax_deprecation_warnings(false) do
             parse(partial[frange] * ")", raise=false)
         end
-        if isa(ex, Expr) && ex.head==:call
-            return complete_methods(ex), start(frange):method_name_end, false
+        if isa(ex, Expr) && ex.head==:call 
+            return Suggestion.(complete_methods(ex), false), start(frange):method_name_end, false
         end
     elseif inc_tag == :comment
-        return String[], 0:-1, false
+        return Suggestion[], 0:-1, false, not_exported([])
     end
 
     dotpos = rsearch(string, '.', pos)
     startpos = nextind(string, rsearch(string, non_identifier_chars, pos))
 
     ffunc = (mod,x)->true
-    suggestions = String[]
+    suggestions = Suggestion[]
     comp_keywords = true
     if afterusing(string, startpos)
         # We're right after using or import. Let's look only for packages
@@ -520,7 +528,7 @@ function completions(string, pos)
                         #   <Mod>/src/<Mod>.jl
                         #   <Mod>.jl/src/<Mod>.jl
                         if isfile(joinpath(dir, pname))
-                            endswith(pname, ".jl") && push!(suggestions, pname[1:end-3])
+                            endswith(pname, ".jl") && push!(suggestions, Suggestion(pname[1:end-3], false))
                         else
                             mod_name = if endswith(pname, ".jl")
                                 pname[1:end - 3]
@@ -529,7 +537,7 @@ function completions(string, pos)
                             end
                             if isfile(joinpath(dir, pname, "src",
                                                "$mod_name.jl"))
-                                push!(suggestions, mod_name)
+                                push!(suggestions, Suggestion(mod_name, false))
                             end
                         end
                     end
@@ -542,7 +550,7 @@ function completions(string, pos)
     startpos == 0 && (pos = -1)
     dotpos < startpos && (dotpos = startpos - 1)
     s = string[startpos:pos]
-    comp_keywords && append!(suggestions, complete_keyword(s))
+    comp_keywords && append!(suggestions, Suggestion.(complete_keyword(s), false))
     # The case where dot and start pos is equal could look like: "(""*"").d","". or  CompletionFoo.test_y_array[1].y
     # This case can be handled by finding the begining of the expresion. This is done bellow.
     if dotpos == startpos
